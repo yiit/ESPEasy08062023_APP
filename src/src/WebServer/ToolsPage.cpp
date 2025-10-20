@@ -111,6 +111,10 @@ void handle_tools() {
   addWideButtonPlusDescription(F("i2cscanner"), F("I2C Scan"), F("Scan for I2C devices"));
   # endif // ifdef WEBSERVER_I2C_SCANNER
 
+  # if defined(HAS_BLE_CLIENT) || defined(HAS_BLE)
+  addWideButtonPlusDescription(F("blescanner"), F("BLE Scan"), F("Scan for BLE devices and configure settings"));
+  # endif // if defined(HAS_BLE_CLIENT) || defined(HAS_BLE)
+
   addFormSubHeader(F("Settings"));
 
   addWideButtonPlusDescription(F("upload"), F("Load"), F("Loads a settings file"));

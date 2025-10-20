@@ -510,12 +510,25 @@ class MyCallbacksPrinter: public BLECharacteristicCallbacks {
 
 #ifdef HAS_BLE_CLIENT
 
+// BLE target MAC address is now dynamically read from Settings.bluetooth_mac_address
+// Previous static addresses:
 //#define TARGET_MAC_ADDRESS "64:2d:31:21:41:50"
 //#define TARGET_MAC_ADDRESS "dc:0d:30:e3:12:6c"
-#define TARGET_MAC_ADDRESS "dc:0d:30:f2:db:A8"
+//#define TARGET_MAC_ADDRESS "dc:0d:30:f2:db:A8"
 
 void connectToServer() {
   Serial.println("Scanning for BLE devices...");
+
+  // Check if bluetooth MAC address is configured
+  if (strlen(Settings.bluetooth_mac_address) == 0) {
+    Serial.println("BLE MAC address not configured in Settings!");
+    addLog(LOG_LEVEL_ERROR, F("BLE: MAC address not configured. Please set it via Tools->BLE Scanner"));
+    return;
+  }
+
+  String targetMacAddress = String(Settings.bluetooth_mac_address);
+  Serial.print("Scanning for target device: ");
+  Serial.println(targetMacAddress);
 
   if (pClient != nullptr) {
     if (pClient->isConnected()) {
@@ -533,7 +546,7 @@ void connectToServer() {
       BLEAdvertisedDevice dev = results.getDevice(i);
 
       String found = String(dev.getAddress().toString().c_str());  // std::string → const char* → String
-      if (found.equalsIgnoreCase(String(TARGET_MAC_ADDRESS))) {
+      if (found.equalsIgnoreCase(targetMacAddress)) {
         Serial.println("Target device found via MAC!");
 
           pClient = BLEDevice::createClient();

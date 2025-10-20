@@ -27,6 +27,18 @@
 
 #include "../Helpers/RulesMatcher.h"
 #include "../ESPEasyCore/ESPEasyRules.h"
+
+// BLE değişkenleri için extern tanımlamaları
+#if defined(HAS_BLE_CLIENT) || defined(HAS_BLE)
+extern bool deviceConnected;
+extern bool clientConnected;
+extern BLECharacteristic* pTxCharacteristic;
+extern BLERemoteCharacteristic* pRemoteRxCharacteristic;
+#endif
+
+// ExtraTaskSettings erişimi için
+extern ExtraTaskSettingsStruct ExtraTaskSettings;
+
 int qrkod_bas = 0;
 int qrkod_son = 0;
 
@@ -62,6 +74,32 @@ uint8_t qr_w1 = 1;
 String kopya_data_s;
 
 #if defined(USES_P120) || defined(USES_P121) || defined(USES_P122)
+
+// BLE için optimize edilmiş yazma fonksiyonu
+void bleSendData(const String& data) {
+#if defined(HAS_BLE_CLIENT) || defined(HAS_BLE)
+  if (data.length() == 0) return;
+  
+  // BLE yazma işlemini chunk'lara böl (max 500 byte)
+  const size_t chunkSize = 500;
+  size_t dataLen = data.length();
+  
+  for (size_t i = 0; i < dataLen; i += chunkSize) {
+    size_t currentChunkSize = min(chunkSize, dataLen - i);
+    String chunk = data.substring(i, i + currentChunkSize);
+    
+    if (deviceConnected && pTxCharacteristic) {
+      pTxCharacteristic->setValue(chunk.c_str());
+      pTxCharacteristic->notify();
+      delay(200); // BLE buffer için bekleme
+    }
+    if (clientConnected && pRemoteRxCharacteristic) {
+      pRemoteRxCharacteristic->writeValue(chunk.c_str());
+      delay(200); // BLE buffer için bekleme
+    }
+  }
+#endif
+}
 
 void fis_yazdir_hata(boolean aktif, int mod) {
   /*#ifdef ESP8266
@@ -103,8 +141,19 @@ void fis_yaz(String FIS, int mod) {
   EEPROM.writeFloat(address, top_net);
   address += sizeof(float);
   EEPROM.commit();
+  addLog(LOG_LEVEL_INFO, String(F("FYZ: Checking if file exists: ")) + FIS);
+  
   if (fileExists(FIS)) {
+    addLog(LOG_LEVEL_INFO, String(F("FYZ: File found, attempting to open: ")) + FIS);
+    
     fs::File form = tryOpenFile(FIS, "r");
+    
+    if (form) {
+      addLog(LOG_LEVEL_INFO, String(F("FYZ: Successfully opened file: ")) + FIS + F(" Size: ") + String(form.size()));
+    } else {
+      addLog(LOG_LEVEL_ERROR, String(F("FYZ: Failed to open file: ")) + FIS);
+    }
+    
     String file_data = "";
 #ifdef HAS_BLUETOOTH
     if (Settings.bluetooth_mod == 1)
@@ -241,7 +290,10 @@ void fis_yaz(String FIS, int mod) {
         //Serial.write(uint8_t(qrkod_data.length()+3) / 256);
         else {
           Serial1.write(yazdir_c[i]);
-          kopya_data_s += String(yazdir_c[i]);
+          // FYZ_Kopya aktifse kopya verisi biriktirilir
+          if (ExtraTaskSettings.TaskDevicePluginConfig[0]) {
+            kopya_data_s += String(yazdir_c[i]);
+          }
         }
       }
       /*#ifdef ESP32
@@ -336,7 +388,7 @@ String Command_Fyz_Art(struct EventStruct* event, const char* Line) {
   }
   dtostrf(sno, 3, 0, XML_SNO_C);
   if (sno == 1 && ((XML_NET_S.toFloat() > 0.00001) || (Settings.UseNegatifYaz))) {
-    kopya_data_s = "";
+    // kopya_data_s = ""; // Kaldırıldı - artık temizlemiyoruz, biriktiriyoruz
     /*if (Settings.UseNegatifYaz) {
       sno = sno + 1;
       XML_SNO_S = String(sno);
@@ -403,9 +455,17 @@ String Command_Fyz_Top(struct EventStruct* event, const char* Line) {
     dtostrf(seri_no, 8, 0, XML_SERI_NO_C);
     //kopya_data_s = "#### FiS KOPYASI ####\r\n";
     fis_yaz(Settings.tek_prn, 1);
-    if (ExtraTaskSettings.TaskDevicePluginConfig[0]) {
+    // Tek işlem durumunda da kopya yazdır ve FYZ_Kopya aktifse BLE ile gönder
+    if (kopya_data_s.length() > 0) {
+      Serial1.println("#### FIS KOPYASI ####");
       Serial1.println(kopya_data_s);
-      kopya_data_s = "";
+      
+      // FYZ_Kopya aktifse BLE üzerinden kopya gönder
+      if (ExtraTaskSettings.TaskDevicePluginConfig[0]) {
+        String bleKopya = "#### FIS KOPYASI####\r\n";
+        bleKopya += kopya_data_s;
+        bleSendData(bleKopya);
+      }
     }
   } else if ((top_net > 0.00001) || (Settings.UseNegatifYaz)) {
     if (Settings.UseNegatifYaz) {
@@ -418,9 +478,17 @@ String Command_Fyz_Top(struct EventStruct* event, const char* Line) {
     dtostrf(top_dara, 8, int(ExtraTaskSettings.TaskDeviceValueDecimals[1]), XML_TOP_DARA_C);
     dtostrf(top_brut, 8, int(ExtraTaskSettings.TaskDeviceValueDecimals[2]), XML_TOP_BRUT_C);
     fis_yaz(Settings.top_prn, 1);
-    if (ExtraTaskSettings.TaskDevicePluginConfig[0]) {
+    // Toplam fiş yazdırıldıktan sonra biriken tüm tartım kopyalarını yazdır ve FYZ_Kopya aktifse BLE ile gönder
+    if (kopya_data_s.length() > 0) {
+      Serial1.println("#### FIS KOPYASI ####");
       Serial1.println(kopya_data_s);
-      kopya_data_s = "";
+      
+      // FYZ_Kopya aktifse BLE üzerinden kopya gönder  
+      if (ExtraTaskSettings.TaskDevicePluginConfig[0]) {
+        String bleKopya = "#### FIS KOPYASI ####\r\n";
+        bleKopya += kopya_data_s;
+        bleSendData(bleKopya);
+      }
     }
   } else
     fis_yazdir_hata(true, 1);
@@ -433,6 +501,8 @@ String Command_Fyz_Top(struct EventStruct* event, const char* Line) {
   XML_TOP_DARA_S = top_net;
   top_brut = 0;
   XML_TOP_BRUT_S = top_net;
+  // Toplam işlem bittikten sonra kopya verilerini temizle
+  kopya_data_s = "";
   int address = 0;
   EEPROM.writeLong(address, seri_no);
   address += sizeof(long);
@@ -447,7 +517,12 @@ String Command_Fyz_Top(struct EventStruct* event, const char* Line) {
 
 String Command_Fyz_Kopya(struct EventStruct* event, const char* Line) {
   Serial1.println(kopya_data_s);
-  kopya_data_s;
+  
+  // FYZ_Kopya aktifse BLE üzerinden kopya gönder
+  if (ExtraTaskSettings.TaskDevicePluginConfig[0] && kopya_data_s.length() > 0) {
+    bleSendData(kopya_data_s);
+  }
+  
   //return return_see_serial(event);
   return return_command_success();
 }

@@ -40,6 +40,7 @@
 #include "../WebServer/Screen.h"
 #include "../WebServer/Lisans.h"
 #include "../WebServer/json_net.h"
+#include "../WebServer/BLEScanner.h"
 
 
 #include "../WebServer/WebTemplateParser.h"
