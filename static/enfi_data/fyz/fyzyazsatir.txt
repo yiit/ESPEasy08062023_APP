@@ -1,0 +1,53 @@
+fyzyazsatir#%B4%ALINDI BELGESI
+fyzyazsatir#%B4%Demo Firma
+fyzyazsatir#%SOL%
+fyzyazsatir#%SOL%%B2%TARIH       :25.05.2023 18:24
+fyzyazsatir#%B2%%SOL%PLAKA       :35 KNT3 45
+fyzyazsatir#%B2%%SOL%SURUCU ADI  :Atilay Yolcu
+fyzyazsatir#%B2%%SOL%MUSTERI ADI :O009-BORSA - BAYRAKLI / IZMIR
+fyzyazsatir#%B2%%SOL%ATIK CINSI  :Cam Ambalaj Atigi
+fyzyazsatir#%B2%%SOL%OP.NO       :28857
+fyzyazsatir#%B2%%SOL%ISLEM NO    :46014
+fyzyazsatir#%B2%%SOL%1.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%2.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%3.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%4.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%5.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%6.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%7.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%8.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%9.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%10.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%TOPLAM KILO :12340 KG
+fyzyazsatir#%B2%
+fyzyazsatir#%B2%
+fyzyazsatir#%B2%
+fyzyazsatir#%B2%
+fyzyazsatir#%KES%
+
+fyzyazsatir#%B4%ALINDI BELGESI
+fyzyazsatir#%B4%Demo Firma
+fyzyazsatir#%SOL%
+fyzyazsatir#%SOL%%B2%TARIH       :25.05.2023 18:24
+fyzyazsatir#%B2%%SOL%PLAKA       :35 KNT3 45
+fyzyazsatir#%B2%SURUCU ADI  :Atilay Yolcu
+fyzyazsatir#%B2%MUSTERI ADI :O009-BORSA - BAYRAKLI / IZMIR
+fyzyazsatir#%B2%ATIK CINSI  :Cam Ambalaj Atigi
+fyzyazsatir#%B2%%SOL%OP.NO       :28857
+fyzyazsatir#%B2%%SOL%ISLEM NO    :46014
+fyzyazsatir#%B2%%SOL%1.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%2.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%3.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%4.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%5.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%6.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%7.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%8.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%9.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%10.TARTIM    :1234 KG
+fyzyazsatir#%B2%%SOL%TOPLAM KILO :12340 KG
+fyzyazsatir#%B2%
+fyzyazsatir#%B2%
+fyzyazsatir#%B2%
+fyzyazsatir#%B2%
+fyzyazsatir#%KES%

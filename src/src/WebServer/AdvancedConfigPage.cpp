@@ -1,0 +1,626 @@
+#include "../WebServer/AdvancedConfigPage.h"
+
+#ifdef WEBSERVER_ADVANCED
+
+#include "../WebServer/HTML_wrappers.h"
+#include "../WebServer/Markup.h"
+#include "../WebServer/Markup_Buttons.h"
+#include "../WebServer/Markup_Forms.h"
+#include "../WebServer/ESPEasy_WebServer.h"
+
+#include "../ESPEasyCore/ESPEasyWifi.h"
+
+#include "../Globals/ESPEasy_time.h"
+#include "../Globals/Settings.h"
+#include "../Globals/TimeZone.h"
+
+#include "../Helpers/_Plugin_Helper_serial.h"
+#include "../Helpers/ESPEasy_Storage.h"
+#include "../Helpers/ESPEasy_time.h"
+#include "../Helpers/Hardware.h"
+#include "../Helpers/Hardware_defines.h"
+#include "../Helpers/StringConverter.h"
+#include "../Commands/InternalCommands.h"
+
+#include "../../ESPEasy_common.h"
+#include "../../ESPEasy-Globals.h"
+
+void setLogLevelFor(uint8_t destination, LabelType::Enum label) {
+  setLogLevelFor(destination, getFormItemInt(getInternalLabel(label)));
+}
+
+// ********************************************************************************
+// Web Interface config page
+// ********************************************************************************
+void handle_advanced() {
+  #ifndef BUILD_NO_RAM_TRACKER
+  checkRAM(F("handle_advanced"));
+  #endif
+
+  if (!isLoggedIn()) { return; }
+  if (!isLisansIn()) { return; }
+  navMenuIndex = MENU_INDEX_TOOLS;
+  TXBuffer.startStream();
+  sendHeadandTail_stdtemplate(_HEAD);
+
+  String webrequest = web_server.arg(F("cmd"));
+  if (webrequest.length() > 0) {
+    struct EventStruct TempEvent;
+    parseCommandString(&TempEvent, webrequest);
+    TempEvent.Source = EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND;
+    ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, webrequest.c_str());
+  }
+
+  if (!webArg(F("edit")).isEmpty())
+  {
+    String webservisadres = webArg(F("webservisadres"));
+    String bluetoothmacaddress = webArg(F("bluetoothmacaddress"));
+    String espnowmacaddress = webArg(F("espnowmacaddress"));
+//    Settings.MessageDelay_unused = getFormItemInt(F("messagedelay"));
+    Settings.IP_Octet     = webArg(F("ip")).toInt();
+    strncpy_webserver_arg(Settings.NTPHost, F("ntphost"));
+    Settings.TimeZone = getFormItemInt(F("timezone"));
+    TimeChangeRule dst_start(getFormItemInt(F("dststartweek")), getFormItemInt(F("dststartdow")), getFormItemInt(F("dststartmonth")), getFormItemInt(F("dststarthour")), Settings.TimeZone);
+
+    if (dst_start.isValid()) { Settings.DST_Start = dst_start.toFlashStoredValue(); }
+    TimeChangeRule dst_end(getFormItemInt(F("dstendweek")), getFormItemInt(F("dstenddow")), getFormItemInt(F("dstendmonth")), getFormItemInt(F("dstendhour")), Settings.TimeZone);
+
+    if (dst_end.isValid()) { Settings.DST_End = dst_end.toFlashStoredValue(); }
+    webArg2ip(F("syslogip"), Settings.Syslog_IP);
+    webArg2ip(F("cliprinterip"), Settings.Cli_PrinterIP);
+    safe_strncpy(Settings.Web_ServisAdres, webservisadres.c_str(), sizeof(Settings.Web_ServisAdres));
+    Settings.WebserverPort = getFormItemInt(F("webport"));
+    Settings.UDPPort = getFormItemInt(F("udpport"));
+
+    Settings.SyslogFacility = getFormItemInt(F("syslogfacility"));
+    Settings.SyslogPort     = getFormItemInt(F("syslogport"));
+    Settings.UseSerial      = isFormItemChecked(LabelType::ENABLE_SERIAL_PORT_CONSOLE);
+ 
+    Settings.Cli_PrinterAktif = isFormItemChecked(F("cliprinteraktif"));
+    Settings.Cli_PrinterPort  = getFormItemInt(F("cliprinterport"));
+    Settings.Web_ServisAktif  = isFormItemChecked(F("webservisaktif"));
+    Settings.Web_ServisPort   = getFormItemInt(F("webservisport"));
+    Settings.Web_ServisMod    = getFormItemInt(F("webservismod"));
+    Settings.Tersle           = isFormItemChecked(F("tersle"));
+    Settings.BaudBit          = getFormItemInt(F("baudbit"));
+    Settings.UseSerial1       = isFormItemChecked(F("useserial1"));
+    Settings.serial_komut     = isFormItemChecked(F("serialkomut"));
+    Settings.Tersle1          = isFormItemChecked(F("tersle1"));
+    Settings.BaudBit1         = getFormItemInt(F("baudbit1"));
+    Settings.UseSerialBT      = isFormItemChecked(F("useserialbt"));
+    Settings.bluetooth_mod    = getFormItemInt(F("bluetoothmod"));
+    safe_strncpy(Settings.bluetooth_mac_address, bluetoothmacaddress.c_str(), sizeof(Settings.bluetooth_mac_address));
+    Settings.espnow_mod       = getFormItemInt(F("espnowmod"));
+    //safe_strncpy(Settings.espnow_mac_address, espnowmacaddress.c_str(), sizeof(Settings.espnow_mac_address));
+
+#if FEATURE_DEFINE_SERIAL_CONSOLE_PORT
+    Settings.console_serial_rxpin = getFormItemInt(F("taskdevicepin1"), Settings.console_serial_rxpin);
+    Settings.console_serial_txpin = getFormItemInt(F("taskdevicepin2"), Settings.console_serial_txpin);
+
+    serialHelper_webformSave(
+      Settings.console_serial_port, 
+      Settings.console_serial_rxpin,
+      Settings.console_serial_txpin);
+#if USES_ESPEASY_CONSOLE_FALLBACK_PORT
+    Settings.console_serial0_fallback = isFormItemChecked(LabelType::CONSOLE_FALLBACK_TO_SERIAL0);
+#endif
+
+#endif
+    setLogLevelFor(LOG_TO_SYSLOG, LabelType::SYSLOG_LOG_LEVEL);
+    setLogLevelFor(LOG_TO_SERIAL, LabelType::SERIAL_LOG_LEVEL);
+    setLogLevelFor(LOG_TO_WEBLOG, LabelType::WEB_LOG_LEVEL);
+#if FEATURE_SD
+    setLogLevelFor(LOG_TO_SDCARD, LabelType::SD_LOG_LEVEL);
+#endif // if FEATURE_SD
+    Settings.UseValueLogger              = isFormItemChecked(F("valuelogger"));
+    Settings.BaudRate                    = getFormItemInt(F("baudrate"));
+    Settings.BaudRate1                   = getFormItemInt(F("baudrate1"));
+    Settings.UseNTP(isFormItemChecked(F("usentp")));
+    Settings.ExtTimeSource(
+      static_cast<ExtTimeSource_e>(getFormItemInt(F("exttimesource")))
+    );
+    Settings.DST                         = isFormItemChecked(F("dst"));
+    Settings.WDI2CAddress                = getFormItemInt(F("wdi2caddress"));
+    #if FEATURE_SSDP
+    Settings.UseSSDP                     = isFormItemChecked(F("usessdp"));
+    #endif // if FEATURE_SSDP
+    Settings.WireClockStretchLimit       = getFormItemInt(F("wireclockstretchlimit"));
+    Settings.UseRules                    = isFormItemChecked(F("userules"));
+    Settings.UseYonetici                 = isFormItemChecked(F("useyonetici"));
+    Settings.UseNegatifYaz               = isFormItemChecked(F("usenegatifyaz"));
+    Settings.UseCasVersion               = isFormItemChecked(F("usecasversion"));
+    Settings.ConnectionFailuresThreshold = getFormItemInt(LabelType::CONNECTION_FAIL_THRESH);
+    Settings.ArduinoOTAEnable            = isFormItemChecked(F("arduinootaenable"));
+    Settings.UseRTOSMultitasking         = isFormItemChecked(F("usertosmultitasking"));
+
+    // MQTT settings now moved to the controller settings.
+//    Settings.MQTTRetainFlag_unused              = isFormItemChecked(F("mqttretainflag"));
+//    Settings.MQTTUseUnitNameAsClientId   = isFormItemChecked(F("mqttuseunitnameasclientid"));
+//    Settings.uniqueMQTTclientIdReconnect(isFormItemChecked(F("uniquemqttclientidreconnect")));
+    //Settings.Latitude  = getFormItemFloat(F("latitude"));
+    //Settings.Longitude = getFormItemFloat(F("longitude"));
+    #ifdef WEBSERVER_NEW_RULES
+    Settings.OldRulesEngine(isFormItemChecked(F("oldrulesengine")));
+    #endif // WEBSERVER_NEW_RULES
+    Settings.TolerantLastArgParse(isFormItemChecked(F("tolerantargparse")));
+    Settings.SendToHttp_ack(isFormItemChecked(F("sendtohttp_ack")));
+    Settings.SendToHTTP_follow_redirects(isFormItemChecked(F("sendtohttp_redir")));
+    Settings.ForceWiFi_bg_mode(isFormItemChecked(LabelType::FORCE_WIFI_BG));
+    Settings.WiFiRestart_connection_lost(isFormItemChecked(LabelType::RESTART_WIFI_LOST_CONN));
+    Settings.EcoPowerMode(isFormItemChecked(LabelType::CPU_ECO_MODE));
+    Settings.WifiNoneSleep(isFormItemChecked(LabelType::FORCE_WIFI_NOSLEEP));
+#ifdef SUPPORT_ARP
+    Settings.gratuitousARP(isFormItemChecked(LabelType::PERIODICAL_GRAT_ARP));
+#endif // ifdef SUPPORT_ARP
+#if FEATURE_SET_WIFI_TX_PWR
+    Settings.setWiFi_TX_power(getFormItemFloat(LabelType::WIFI_TX_MAX_PWR));
+    Settings.WiFi_sensitivity_margin = getFormItemInt(LabelType::WIFI_SENS_MARGIN);
+    Settings.UseMaxTXpowerForSending(isFormItemChecked(LabelType::WIFI_SEND_AT_MAX_TX_PWR));
+#endif
+    Settings.NumberExtraWiFiScans = getFormItemInt(LabelType::WIFI_NR_EXTRA_SCANS);
+    Settings.UseLastWiFiFromRTC(isFormItemChecked(LabelType::WIFI_USE_LAST_CONN_FROM_RTC));
+    Settings.JSONBoolWithoutQuotes(isFormItemChecked(LabelType::JSON_BOOL_QUOTES));
+    Settings.EnableTimingStats(isFormItemChecked(LabelType::ENABLE_TIMING_STATISTICS));
+    Settings.AllowTaskValueSetAllPlugins(isFormItemChecked(LabelType::TASKVALUESET_ALL_PLUGINS));
+    Settings.EnableClearHangingI2Cbus(isFormItemChecked(LabelType::ENABLE_CLEAR_HUNG_I2C_BUS));
+    #if FEATURE_I2C_DEVICE_CHECK
+    Settings.CheckI2Cdevice(isFormItemChecked(LabelType::ENABLE_I2C_DEVICE_CHECK));
+    #endif // if FEATURE_I2C_DEVICE_CHECK
+
+    Settings.WaitWiFiConnect(isFormItemChecked(LabelType::WAIT_WIFI_CONNECT));
+    Settings.SDK_WiFi_autoreconnect(isFormItemChecked(LabelType::SDK_WIFI_AUTORECONNECT));
+
+
+#ifndef BUILD_NO_RAM_TRACKER
+    Settings.EnableRAMTracking(isFormItemChecked(LabelType::ENABLE_RAM_TRACKING));
+#endif
+
+    #ifdef ESP8266
+    Settings.UseAlternativeDeepSleep(isFormItemChecked(LabelType::DEEP_SLEEP_ALTERNATIVE_CALL));
+    #endif
+
+    Settings.EnableRulesCaching(isFormItemChecked(LabelType::ENABLE_RULES_CACHING));
+//    Settings.EnableRulesEventReorder(isFormItemChecked(LabelType::ENABLE_RULES_EVENT_REORDER)); // TD-er: Disabled for now
+
+#ifndef NO_HTTP_UPDATER
+    Settings.AllowOTAUnlimited(isFormItemChecked(LabelType::ALLOW_OTA_UNLIMITED));
+#endif // NO_HTTP_UPDATER
+#if FEATURE_AUTO_DARK_MODE
+    Settings.setCssMode(getFormItemInt(getInternalLabel(LabelType::ENABLE_AUTO_DARK_MODE)));
+#endif // FEATURE_AUTO_DARK_MODE
+
+    addHtmlError(SaveSettings());
+
+    if (node_time.systemTimePresent()) {
+      node_time.initTime();
+    }
+  }
+
+  addHtml(F("<form  method='post'>"));
+  html_table_class_normal();
+
+  addFormHeader(F("Advanced Settings"), F("RTDTools/Tools.html#advanced"));
+
+  addFormSubHeader(F("Rules Settings"));
+
+  addFormCheckBox(F("Rules"),      F("userules"),       Settings.UseRules);
+  addFormCheckBox(F("Yonetici Aktif"), F("useyonetici"), Settings.UseYonetici);
+  addFormCheckBox(F("Negatif Yazdır"), F("usenegatifyaz"), Settings.UseNegatifYaz);
+  addFormCheckBox(F("CAS Versiyon"), F("usecasversion"), Settings.UseCasVersion);
+  #ifdef WEBSERVER_NEW_RULES
+  addFormCheckBox(F("Old Engine"), F("oldrulesengine"), Settings.OldRulesEngine());
+  #endif // WEBSERVER_NEW_RULES
+  addFormCheckBox(LabelType::ENABLE_RULES_CACHING, Settings.EnableRulesCaching());
+//  addFormCheckBox(LabelType::ENABLE_RULES_EVENT_REORDER, Settings.EnableRulesEventReorder()); // TD-er: Disabled for now
+
+  addFormCheckBox(F("Tolerant last parameter"), F("tolerantargparse"), Settings.TolerantLastArgParse());
+  addFormNote(F("Perform less strict parsing on last argument of some commands (e.g. publish and sendToHttp)"));
+  addFormCheckBox(F("SendToHTTP wait for ack"), F("sendtohttp_ack"), Settings.SendToHttp_ack());
+  addFormCheckBox(F("SendToHTTP Follow Redirects"), F("sendtohttp_redir"), Settings.SendToHTTP_follow_redirects());
+
+  /*
+  // MQTT settings now moved to the controller settings.
+  addFormSubHeader(F("Controller Settings"));
+
+  addFormNumericBox(F("Message Interval"), F("messagedelay"), Settings.MessageDelay_unused, 0, INT_MAX);
+  addUnit(F("ms"));
+
+  addFormCheckBox(F("MQTT Retain Msg"), F("mqttretainflag"), Settings.MQTTRetainFlag_unused);
+  addFormCheckBox(F("MQTT use unit name as ClientId"),    F("mqttuseunitnameasclientid"),   Settings.MQTTUseUnitNameAsClientId);
+  addFormCheckBox(F("MQTT change ClientId at reconnect"), F("uniquemqttclientidreconnect"), Settings.uniqueMQTTclientIdReconnect_unused());
+*/
+
+  addFormSubHeader(F("Time Source"));
+
+  addFormCheckBox(F("Use NTP"), F("usentp"), Settings.UseNTP());
+  addFormTextBox(F("NTP Hostname"), F("ntphost"), Settings.NTPHost, 63);
+  if (!Settings.UseNTP()) {
+    String button = "datetime#";
+    String message; 
+    if (web_server.arg(F("datetime")).length() > 0)
+      message = web_server.arg(F("datetime"));
+    else
+      message = node_time.getDateTimeString('-', ':', '#');
+    addFormTextBox(F("Tarih-Saat"), F("datetime"), message, 19);
+    button += message;
+    if (web_server.hasArg(F("tarih_saat_guncelle"))) {
+      ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, button.c_str());
+    }
+    addSubmitButton(F("Tarih-Saat Güncelle"), F("tarih_saat_guncelle"));
+    addFormNote(F("example: 01-01-2023#01:12:01"));
+    addFormExtTimeSourceSelect(F("External Time Source"), F("exttimesource"), Settings.ExtTimeSource());
+  }
+/*
+  #if FEATURE_EXT_RTC
+  addFormExtTimeSourceSelect(F("External Time Source"), F("exttimesource"), Settings.ExtTimeSource());
+  if (Settings.ExtTimeSource() != ExtTimeSource_e::None) {
+    addFormNote(concat(getLabel(LabelType::EXT_RTC_UTC_TIME), F(": ")) + getValue(LabelType::EXT_RTC_UTC_TIME));
+  }
+  #endif
+
+  addFormSubHeader(F("DST Settings"));
+  addFormDstSelect(true,  Settings.DST_Start);
+  addFormDstSelect(false, Settings.DST_End);
+  addFormCheckBox(F("DST"), F("dst"), Settings.DST);
+*/
+  addFormSubHeader(F("Location Settings"));
+  addFormNumericBox(F("Timezone Offset (UTC +)"), F("timezone"), Settings.TimeZone, -720, 840); // UTC-12H ... UTC+14h
+  addUnit(F("minutes"));
+/*
+  addFormFloatNumberBox(F("Latitude"), F("latitude"), Settings.Latitude, -90.0f, 90.0f);
+  addUnit(F("&deg;"));
+  addFormFloatNumberBox(F("Longitude"), F("longitude"), Settings.Longitude, -180.0f, 180.0f);
+  addUnit(F("&deg;"));
+  addFormNote(F("Longitude and Latitude are used to compute sunrise and sunset"));
+*/
+
+  addFormSubHeader(F("Log Settings"));
+
+  addFormCheckBox(F("Enable Client Printer"), F("cliprinteraktif"), Settings.Cli_PrinterAktif);
+  addFormIPBox(F("Client Printer IP"), F("cliprinterip"), Settings.Cli_PrinterIP);
+  addFormNumericBox(F("Client Printer port"), F("cliprinterport"), Settings.Cli_PrinterPort, 0, 65535);
+
+  addFormCheckBox(F("Enable Web Servis"), F("webservisaktif"), Settings.Web_ServisAktif);
+  addFormTextBox(F("Web Servis Adres"), F("webservisadres"), Settings.Web_ServisAdres, 127);
+  addFormNumericBox(F("Web Servis port"), F("webservisport"), Settings.Web_ServisPort, 0, 65535);
+
+  byte choice1 = Settings.Web_ServisMod;
+  String options1[2];
+  options1[0] = F("HTTP");
+  options1[1] = F("TELNET");
+  int optionValues1[2];
+  optionValues1[0] = 0;
+  optionValues1[1] = 1;
+  addFormSelector(F("Web Servis Mod"), F("webservismod"), 2, options1, optionValues1, choice1);
+
+  addFormIPBox(F("Syslog IP"), F("syslogip"), Settings.Syslog_IP);
+  addFormNumericBox(F("Syslog UDP port"), F("syslogport"), Settings.SyslogPort, 0, 65535);
+
+  addFormLogLevelSelect(LabelType::SYSLOG_LOG_LEVEL, Settings.SyslogLevel);
+  addFormLogFacilitySelect(F("Syslog Facility"), F("syslogfacility"), Settings.SyslogFacility);
+  addFormLogLevelSelect(LabelType::SERIAL_LOG_LEVEL, Settings.SerialLogLevel);
+  addFormLogLevelSelect(LabelType::WEB_LOG_LEVEL,    Settings.WebLogLevel);
+
+#if FEATURE_SD
+  addFormLogLevelSelect(LabelType::SD_LOG_LEVEL,     Settings.SDLogLevel);
+
+  addFormCheckBox(F("SD Card Value Logger"), F("valuelogger"), Settings.UseValueLogger);
+#endif // if FEATURE_SD
+
+
+  addFormSubHeader(F("Serial Console Settings"));
+  addFormCheckBox(F("Tersle"), F("tersle"), Settings.Tersle);
+  addFormCheckBox(LabelType::ENABLE_SERIAL_PORT_CONSOLE, Settings.UseSerial);
+  addFormCheckBox(F("Serial Komut"), F("serialkomut"), Settings.serial_komut);
+  addFormNumericBox(F("Baud Rate"), F("baudrate"), Settings.BaudRate, 0, 1000000);
+  byte choice2 = Settings.BaudBit;
+  String options2[3];
+  options2[0] = F("8N1");
+  options2[1] = F("7E1");
+  options2[2] = F("8O1");
+  int optionValues2[3];
+  optionValues2[0] = 0;
+  optionValues2[1] = 1;
+  optionValues2[2] = 2;
+  addFormSelector(F("Baud Bit"), F("baudbit"), 3, options2, optionValues2, choice2);
+
+#if FEATURE_DEFINE_SERIAL_CONSOLE_PORT
+  serialHelper_webformLoad(
+    static_cast<ESPEasySerialPort>(Settings.console_serial_port), 
+    Settings.console_serial_rxpin, 
+    Settings.console_serial_txpin, 
+    true);
+
+  // Show serial port selection
+  addFormPinSelect(
+    PinSelectPurpose::Serial_input, 
+    formatGpioName_serialRX(false),
+    F("taskdevicepin1"), 
+    Settings.console_serial_rxpin);
+  addFormPinSelect(
+    PinSelectPurpose::Serial_output, 
+    formatGpioName_serialTX(false),
+    F("taskdevicepin2"), 
+    Settings.console_serial_txpin);
+
+  html_add_script(F("document.getElementById('serPort').onchange();"), false);
+#if USES_ESPEASY_CONSOLE_FALLBACK_PORT
+  addFormCheckBox(LabelType::CONSOLE_FALLBACK_TO_SERIAL0, Settings.console_serial0_fallback);
+#endif
+
+#endif
+
+  addFormSubHeader(F("Serial1 Settings"));
+
+  addFormCheckBox(F("Serial1 Komut Aktif"), F("useserial1"), Settings.UseSerial1);
+  addFormCheckBox(F("Tersle1"), F("tersle1"), Settings.Tersle1);
+  addFormNumericBox(F("Baud Rate1"), F("baudrate1"), Settings.BaudRate1, 0, 1000000);
+  byte choice3 = Settings.BaudBit1;
+  String options3[2];
+  options3[0] = F("8N1");
+  options3[1] = F("7E1");
+  int optionValues3[2];
+  optionValues3[0] = 0;
+  optionValues3[1] = 1;
+  addFormSelector(F("Baud Bit1"), F("baudbit1"), 2, options3, optionValues3, choice3);
+
+#ifdef ESP32
+#ifdef HAS_BLUETOOTH
+  addFormSubHeader(F("Bluetooth Settings"));
+  addFormCheckBox(F("SerialBT Komut Aktif"), F("useserialbt"), Settings.UseSerialBT);
+  byte choice4 = Settings.bluetooth_mod;
+  String options4[3];
+  options4[0] = F("kapalı");
+  options4[1] = F("client");
+  options4[2] = F("server");
+  int optionValues4[3];
+  optionValues4[0] = 0;
+  optionValues4[1] = 1;
+  optionValues4[2] = 2;
+  addFormSelector(F("Bluetooth Mod"), F("bluetoothmod"), 3, options4, optionValues4, choice4);
+  //addFormCheckBox(F("Bluetooth Aktif"), F("bluetoothclientaktif"), Settings.bluetooth_aktif);
+  addFormTextBox(F("Server Bluetooth Mac Adres"), F("bluetoothmacaddress"), Settings.bluetooth_mac_address, 17);
+#endif
+#endif
+
+  addFormSubHeader(F("ESPNOW Settings"));
+  addFormCheckBox(F("ESPNOW Komut Aktif"), F("useespnow"), Settings.UseESPNOW);
+  byte choice5 = Settings.espnow_mod;
+  String options5[3];
+  options5[0] = F("kapalı");
+  options5[1] = F("client");
+  options5[2] = F("server");
+  int optionValues5[3];
+  optionValues5[0] = 0;
+  optionValues5[1] = 1;
+  optionValues5[2] = 2;
+  addFormSelector(F("ESPNOW Mod"), F("espnowmod"), 3, options5, optionValues5, choice5);
+  //addFormCheckBox(F("Bluetooth Aktif"), F("bluetoothclientaktif"), Settings.bluetooth_aktif);
+  //addFormTextBox(F("Server ESPNOW Mac Adres"), F("espnowmacaddress"), Settings.espnow_mac_address, 17);
+
+
+  addFormSubHeader(F("Inter-ESPEasy Network"));
+  if (Settings.UDPPort != 8266 ) addFormNote(F("Preferred P2P port is 8266"));
+  addFormNumericBox(F("ENFi p2p UDP port"), F("udpport"), Settings.UDPPort, 0, 65535);
+
+  // TODO sort settings in groups or move to other pages/groups
+  addFormSubHeader(F("Special and Experimental Settings"));
+
+  addFormNumericBox(F("Webserver port"), F("webport"), Settings.WebserverPort, 0, 65535);
+  addFormNote(F("Requires reboot to activate"));
+
+  addFormNumericBox(F("Fixed IP Octet"), F("ip"),           Settings.IP_Octet,     0, 255);
+
+  addFormNumericBox(F("WD I2C Address"), F("wdi2caddress"), Settings.WDI2CAddress, 0, 127);
+  addHtml(F(" (decimal)"));
+
+  addFormNumericBox(F("I2C ClockStretchLimit"), F("wireclockstretchlimit"), Settings.WireClockStretchLimit); // TODO define limits
+  #ifdef ESP8266
+  addUnit(F("usec"));
+  #endif
+  #ifdef ESP32
+  addUnit(F("1/80 usec"));
+  #endif
+  #if FEATURE_ARDUINO_OTA
+  addFormCheckBox(F("Enable Arduino OTA"), F("arduinootaenable"), Settings.ArduinoOTAEnable);
+  #endif // if FEATURE_ARDUINO_OTA
+  #if defined(ESP32)
+  addFormCheckBox_disabled(F("Enable RTOS Multitasking"), F("usertosmultitasking"), Settings.UseRTOSMultitasking);
+  #endif // if defined(ESP32)
+
+  addFormCheckBox(LabelType::JSON_BOOL_QUOTES, Settings.JSONBoolWithoutQuotes());
+  #if FEATURE_TIMING_STATS
+  addFormCheckBox(LabelType::ENABLE_TIMING_STATISTICS, Settings.EnableTimingStats());
+  #endif // if FEATURE_TIMING_STATS
+#ifndef BUILD_NO_RAM_TRACKER
+  addFormCheckBox(LabelType::ENABLE_RAM_TRACKING, Settings.EnableRAMTracking());
+#endif
+
+  addFormCheckBox(LabelType::TASKVALUESET_ALL_PLUGINS, Settings.AllowTaskValueSetAllPlugins());
+  addFormCheckBox(LabelType::ENABLE_CLEAR_HUNG_I2C_BUS, Settings.EnableClearHangingI2Cbus());
+  #if FEATURE_I2C_DEVICE_CHECK
+  addFormCheckBox(LabelType::ENABLE_I2C_DEVICE_CHECK, Settings.CheckI2Cdevice());
+  #endif // if FEATURE_I2C_DEVICE_CHECK
+
+  # ifndef NO_HTTP_UPDATER
+  addFormCheckBox(LabelType::ALLOW_OTA_UNLIMITED, Settings.AllowOTAUnlimited());
+  addFormNote(F("When enabled, OTA updating can overwrite the filesystem and settings!"));
+  addFormNote(F("Requires reboot to activate"));
+  # endif // ifndef NO_HTTP_UPDATER
+  #if FEATURE_AUTO_DARK_MODE
+  const __FlashStringHelper * cssModeNames[] = {
+    F("Auto"),
+    F("Light"),
+    F("Dark"),
+  };
+  const int cssModeOptions[] = { 0, 1, 2};
+    addFormSelector(getLabel(LabelType::ENABLE_AUTO_DARK_MODE),
+                    getInternalLabel(LabelType::ENABLE_AUTO_DARK_MODE),
+                    sizeof(cssModeOptions) / sizeof(int),
+                    cssModeNames,
+                    cssModeOptions,
+                    Settings.getCssMode());
+  #endif // FEATURE_AUTO_DARK_MODE
+
+  #ifdef ESP8266
+  addFormCheckBox(LabelType::DEEP_SLEEP_ALTERNATIVE_CALL, Settings.UseAlternativeDeepSleep());
+  #endif
+
+
+  #if FEATURE_SSDP
+  addFormCheckBox_disabled(F("Use SSDP"), F("usessdp"), Settings.UseSSDP);
+  #endif // if FEATURE_SSDP
+
+  addFormNumericBox(LabelType::CONNECTION_FAIL_THRESH, Settings.ConnectionFailuresThreshold, 0, 100);
+  addFormCheckBox(LabelType::FORCE_WIFI_BG, Settings.ForceWiFi_bg_mode());
+
+  addFormCheckBox(LabelType::RESTART_WIFI_LOST_CONN, Settings.WiFiRestart_connection_lost());
+  addFormCheckBox(LabelType::FORCE_WIFI_NOSLEEP,     Settings.WifiNoneSleep());
+  addFormNote(F("Change WiFi sleep settings requires reboot to activate"));
+#ifdef SUPPORT_ARP
+  addFormCheckBox(LabelType::PERIODICAL_GRAT_ARP, Settings.gratuitousARP());
+#endif // ifdef SUPPORT_ARP
+  addFormCheckBox(LabelType::CPU_ECO_MODE,        Settings.EcoPowerMode());
+  addFormNote(F("Node may miss receiving packets with Eco mode enabled"));
+#if FEATURE_SET_WIFI_TX_PWR
+  {
+    float maxTXpwr;
+    float sensitivity = GetRSSIthreshold(maxTXpwr);
+    
+    addFormFloatNumberBox(LabelType::WIFI_TX_MAX_PWR, Settings.getWiFi_TX_power(), 0.0f, MAX_TX_PWR_DBM_11b, 2, 0.25f);
+    addUnit(F("dBm"));
+    String note;
+    note = F("Current max: ");
+    note += toString(maxTXpwr, 2);
+    note += F(" dBm");
+    addFormNote(note);
+
+    addFormNumericBox(LabelType::WIFI_SENS_MARGIN, Settings.WiFi_sensitivity_margin, -20, 30);
+    addUnit(F("dB")); // Relative, thus the unit is dB, not dBm
+    note = F("Adjust TX power to target the AP with (sensitivity + margin) dBm signal strength. Current sensitivity: ");
+    note += toString(sensitivity, 2);
+    note += F(" dBm");
+    addFormNote(note);
+  }
+  addFormCheckBox(LabelType::WIFI_SEND_AT_MAX_TX_PWR, Settings.UseMaxTXpowerForSending());
+#endif
+  {
+    addFormNumericBox(LabelType::WIFI_NR_EXTRA_SCANS, Settings.NumberExtraWiFiScans, 0, 5);
+    addFormNote(F("Number of extra times to scan all channels to have higher chance of finding the desired AP"));
+  }
+  addFormCheckBox(LabelType::WIFI_USE_LAST_CONN_FROM_RTC, Settings.UseLastWiFiFromRTC());
+
+
+  addFormCheckBox(LabelType::WAIT_WIFI_CONNECT,      Settings.WaitWiFiConnect());
+  addFormCheckBox(LabelType::SDK_WIFI_AUTORECONNECT, Settings.SDK_WiFi_autoreconnect());
+
+
+
+  addFormSeparator(2);
+
+  html_TR_TD();
+  html_TD();
+  addSubmitButton();
+  addHtml(F("<input type='hidden' name='edit' value='1'>"));
+  html_end_table();
+  html_end_form();
+  sendHeadandTail_stdtemplate(_TAIL);
+  TXBuffer.endStream();
+}
+
+void addFormDstSelect(bool isStart, uint16_t choice) {
+  uint16_t tmpstart(choice);
+  uint16_t tmpend(choice);
+
+  if (!TimeChangeRule(choice, 0).isValid()) {
+    time_zone.getDefaultDst_flash_values(tmpstart, tmpend);
+  }
+  TimeChangeRule rule(isStart ? tmpstart : tmpend, 0);
+  {
+    const __FlashStringHelper *  week[5] = { F("Last"), F("1st"), F("2nd"), F("3rd"), F("4th") };
+    int    weekValues[5] = { 0, 1, 2, 3, 4 };
+
+    {
+      String weeklabel = isStart ? F("Start")  : F("End");
+      weeklabel += F(" (week, dow, month)");
+      addRowLabel(weeklabel);
+    }
+    addSelector(
+      isStart ? F("dststartweek")  : F("dstendweek"), 
+      5, week, weekValues, nullptr, rule.week);
+  }
+  html_BR();
+  {
+    const __FlashStringHelper *  dow[7] = { F("Sun"), F("Mon"), F("Tue"), F("Wed"), F("Thu"), F("Fri"), F("Sat") };
+    int    dowValues[7]  = { 1, 2, 3, 4, 5, 6, 7 };
+
+    addSelector(
+      isStart ? F("dststartdow")   : F("dstenddow"),
+      7, dow, dowValues, nullptr, rule.dow);
+  }
+  html_BR();
+  {
+    const __FlashStringHelper * month[12] = { F("Jan"), F("Feb"), F("Mar"), F("Apr"), F("May"), F("Jun"), F("Jul"), F("Aug"), F("Sep"), F("Oct"), F("Nov"), F(
+                             "Dec") };
+    int    monthValues[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+
+    addSelector(isStart ? F("dststartmonth") : F("dstendmonth"),
+                12, month, monthValues, nullptr, rule.month);
+  }
+  {
+    addFormNumericBox(
+      isStart ? F("Start (localtime, e.g. 2h&rarr;3h)")  : F("End (localtime, e.g. 3h&rarr;2h)"),
+      isStart ? F("dststarthour")  : F("dstendhour"),
+      rule.hour, 0, 23);
+    addUnit(isStart ? F("hour &#x21b7;") : F("hour &#x21b6;"));
+  }
+}
+
+void addFormExtTimeSourceSelect(const __FlashStringHelper * label, const __FlashStringHelper * id, ExtTimeSource_e choice)
+{
+  addRowLabel(label);
+  const __FlashStringHelper * options[5] =
+    { F("None"), F("DS1307"), F("DS3231"), F("PCF8523"), F("PCF8563")};
+  const int optionValues[5] = { 
+    static_cast<int>(ExtTimeSource_e::None),
+    static_cast<int>(ExtTimeSource_e::DS1307),
+    static_cast<int>(ExtTimeSource_e::DS3231),
+    static_cast<int>(ExtTimeSource_e::PCF8523),
+    static_cast<int>(ExtTimeSource_e::PCF8563)
+    };
+
+  addSelector(id, 5, options, optionValues, nullptr, static_cast<int>(choice));
+}
+
+
+void addFormLogLevelSelect(LabelType::Enum label, int choice)
+{
+  #ifdef BUILD_NO_DEBUG
+  if (choice > LOG_LEVEL_INFO) choice = LOG_LEVEL_INFO;
+  #endif
+
+  addRowLabel(getLabel(label));
+  const __FlashStringHelper * options[LOG_LEVEL_NRELEMENTS + 1];
+  int    optionValues[LOG_LEVEL_NRELEMENTS + 1] = { 0 };
+
+  options[0]      = getLogLevelDisplayString(0);
+
+  for (int i = 0; i < LOG_LEVEL_NRELEMENTS; ++i) {
+    options[i + 1] = getLogLevelDisplayStringFromIndex(i, optionValues[i + 1]);
+  }
+  addSelector(getInternalLabel(label), LOG_LEVEL_NRELEMENTS + 1, options, optionValues, nullptr, choice);
+
+}
+
+void addFormLogFacilitySelect(const __FlashStringHelper * label, const __FlashStringHelper * id, int choice)
+{
+  addRowLabel(label);
+  const __FlashStringHelper * options[12] =
+  { F("Kernel"), F("User"),   F("Daemon"),   F("Message"), F("Local0"),  F("Local1"),
+    F("Local2"), F("Local3"), F("Local4"),   F("Local5"),  F("Local6"),  F("Local7") };
+  const int optionValues[12] = { 0, 1, 3, 5, 16, 17, 18, 19, 20, 21, 22, 23 };
+
+  addSelector(id, 12, options, optionValues, nullptr, choice);
+}
+
+#endif // ifdef WEBSERVER_ADVANCED

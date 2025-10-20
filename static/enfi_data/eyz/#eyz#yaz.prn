@@ -1,0 +1,16 @@
+SIZE 55 mm, 40 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE 857
+TEXT 400,270,"0",180,1,1,"TARiH : %tarih_v%"
+TEXT 400,240,"0",180,1,1,"SAAT  : %saat_v%"
+TEXT 380,150,"0",180,1,2,"NET : %net%  kg"
+TEXT 380,180,"0",180,1,1,"DARA: %dara%   kg"
+TEXT 380,210,"10",180,1,1,"BRUT: %brut%   kg"
+QRCODE 50,100,M,4,A,0,"%agirlik%kg %tarih_v% %saat_v%"
+PRINT 1,1

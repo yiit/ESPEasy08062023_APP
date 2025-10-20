@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSPL PRN Görselleştirme</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            background-color: #f3f3f3; /* Arka plan rengi */
+        }
+    </style>
+    <!-- qrcode.js kütüphanesini dahil edin -->
+    <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
+</head>
+<body>
+    <h1>TSPL PRN Görselleştirme</h1>
+    <input type="file" id="fileInput">
+    <button id="generateButton" disabled>Görseli Oluştur</button>
+    <canvas id="canvas" width="1000" height="800"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const fileInput = document.getElementById('fileInput');
+        const generateButton = document.getElementById('generateButton');
+        let tsplCommands = [];
+        const DPI = 203; // 203 dots per inch
+        const MM_TO_INCH = 25.4; // 1 inch = 25.4 mm
+        const MM_TO_PIXEL = DPI / MM_TO_INCH; // Pixels per millimeter
+
+        fileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const text = e.target.result;
+                    tsplCommands = text.split('\n').map(line => line.trim());
+                    parseSizeCommand(tsplCommands);
+                    generateButton.disabled = false; // Butonu etkinleştir
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        generateButton.addEventListener('click', function() {
+            if (tsplCommands.length > 0) {
+                visualizeTsplCommands(tsplCommands);
+            }
+        });
+
+        function parseSizeCommand(commands) {
+            const sizeCommand = commands.find(command => command.startsWith('SIZE'));
+            if (sizeCommand) {
+                const parts = sizeCommand.match(/SIZE\s+([\d.]+)\s*mm,\s*([\d.]+)\s*mm/);
+                if (parts) {
+                    const widthMM = parseFloat(parts[1]);
+                    const heightMM = parseFloat(parts[2]);
+                    const canvasWidth = Math.round(widthMM * MM_TO_PIXEL);
+                    const canvasHeight = Math.round(heightMM * MM_TO_PIXEL);
+                    
+                    // Canvas boyutlarını ayarla
+                    canvas.width = canvasWidth;
+                    canvas.height = canvasHeight;
+                    
+                    console.log(`Canvas boyutları: Genişlik = ${canvasWidth}px, Yükseklik = ${canvasHeight}px (203 DPI)`);
+                } else {
+                    console.error("SIZE komutu ayrıştırılamadı:", sizeCommand);
+                }
+            } else {
+                // Varsayılan bir boyut kullan
+                canvas.width = 1000;
+                canvas.height = 800;
+                console.warn("SIZE komutu bulunamadı. Varsayılan boyutlar kullanılacak.");
+            }
+        }
+
+        function visualizeTsplCommands(tsplCommands) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Görseli ters çevirmek için Canvas'ı 180 derece döndür
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(Math.PI); // 180 derece döndür
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+
+            ctx.fillStyle = 'black';
+            ctx.strokeStyle = 'black';
+
+            tsplCommands.forEach((command) => {
+                if (command.startsWith('TEXT')) {
+                    const parts = command.match(/TEXT\s+(\d+),(\d+),"(.*?)",(\d+),(\d+),(\d+),"(.+?)"/);
+                    if (parts) {
+                        const x = parseInt(parts[1]) * MM_TO_PIXEL;
+                        const y = parseInt(parts[2]) * MM_TO_PIXEL;
+                        const font = parts[3];
+                        const rotation = parseInt(parts[4]);
+                        const charHeight = parseInt(parts[6]) * MM_TO_PIXEL;
+                        const content = parts[7];
+
+                        // Fontu ayarla
+                        if (font === "ENDUTEK.TTF") {
+                            ctx.font = `bold ${charHeight}px Arial`;
+                        } else {
+                            ctx.font = `${charHeight}px Arial`;
+                        }
+
+                        // Metni döndürmek gerekirse
+                        if (rotation !== 0) {
+                            ctx.save();
+                            ctx.translate(x, y);
+                            ctx.rotate(-rotation * Math.PI / 180);
+                            ctx.fillText(content, 0, 0);
+                            ctx.restore();
+                        } else {
+                            ctx.fillText(content, x, y);
+                        }
+                    }
+                } else if (command.startsWith('BAR')) {
+                    const parts = command.match(/BAR\s+(\d+),(\d+),\s*(\d+),\s*(\d+)/);
+                    if (parts) {
+                        const x = parseInt(parts[1]) * MM_TO_PIXEL;
+                        const y = parseInt(parts[2]) * MM_TO_PIXEL;
+                        const width = parseInt(parts[3]) * MM_TO_PIXEL;
+                        const height = parseInt(parts[4]) * MM_TO_PIXEL;
+                        ctx.fillRect(x, y, width, height);
+                    }
+                } else if (command.startsWith('BITMAP')) {
+                    const parts = command.match(/BITMAP\s+(\d+),(\d+),(\d+),(\d+),\s*(.*)/);
+                    if (parts) {
+                        const x = parseInt(parts[1]) * MM_TO_PIXEL;
+                        const y = parseInt(parts[2]) * MM_TO_PIXEL;
+                        const width = parseInt(parts[3]) * MM_TO_PIXEL;
+                        const height = parseInt(parts[4]) * MM_TO_PIXEL;
+                        const bitmapData = parts[5].trim();
+                        drawBitmap(ctx, x, y, width, height, bitmapData);
+                    }
+                } else if (command.startsWith('QRCODE')) {
+                    const parts = command.match(/QRCODE\s+(\d+),(\d+),L,(\d+),A,(\d+),"(.*?)"/);
+                    if (parts) {
+                        const x = parseInt(parts[1]) * MM_TO_PIXEL;
+                        const y = parseInt(parts[2]) * MM_TO_PIXEL;
+                        const size = parseInt(parts[3]) * MM_TO_PIXEL;
+                        const content = parts[5];
+                        drawQRCode(x, y, size, content);
+                    }
+                }
+            });
+
+            ctx.restore(); // Ters çevirme dönüşümünü sıfırla
+        }
+
+        function drawBitmap(ctx, x, y, width, height, bitmapData) {
+            const imageData = ctx.createImageData(width, height);
+            let pixelIndex = 0;
+
+            for (let i = 0; i < bitmapData.length; i++) {
+                const byte = bitmapData.charCodeAt(i);
+                for (let bit = 7; bit >= 0; bit--) {
+                    const color = (byte >> bit) & 1 ? 0 : 255;
+                    const index = (pixelIndex % width) * 4 + Math.floor(pixelIndex / width) * width * 4;
+                    imageData.data[index] = color;
+                    imageData.data[index + 1] = color;
+                    imageData.data[index + 2] = color;
+                    imageData.data[index + 3] = 255; // Opaklık
+                    pixelIndex++;
+                    if (pixelIndex >= width * height) break;
+                }
+            }
+
+            ctx.putImageData(imageData, x, y);
+        }
+
+        function drawQRCode(x, y, size, content) {
+            const tempCanvas = document.createElement('canvas');
+            new QRCode(tempCanvas, {
+                text: content,
+                width: size,
+                height: size,
+                correctLevel: QRCode.CorrectLevel.L
+            });
+
+            ctx.drawImage(tempCanvas, x, y, size, size);
+        }
+    </script>
+</body>
+</html>

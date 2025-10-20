@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang='en'>
+<link rel="stylesheet" href="/esp.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<STYLE>
+    body {
+        margin: 0;
+    }
+
+    #container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        position: relative;
+        margin: auto;
+        padding: 10%;
+        flex-wrap: nowrap
+    }
+
+    #sensorList {
+        display: inline-grid;
+        grid-template-columns: auto auto auto;
+        grid-column-gap: 2vh;
+        grid-row-gap: 2vh;
+        position: absolute;
+        top: 75%
+    }
+
+    .sensorset {
+        display: inline-flex;
+        justify-items: stretch;
+        flex-direction: column;
+        padding: 4.2px;
+        flex-wrap: nowrap;
+        border-radius: 5px;
+        align-items: stretch
+    }
+
+    .sensors {
+        text-align: left;
+        text-transform: capitalize;
+        padding-bottom: 5%
+    }
+
+    .values {
+        display: inline-grid;
+        grid-template-columns: auto auto;
+        grid-column-gap: 20px
+    }
+
+    .sensorset,
+    .sensors,
+    .values,
+    .values div {
+        background-color: #ebebeb;
+        color: black
+    }
+
+    a {
+        display: inline-block
+    }
+
+    div {
+        text-align: center
+    }
+
+    .temp.soll span {
+        /*font-size: 30px;*/
+    }
+
+    .button {
+        margin: 4px;
+        padding: 14px 60px;
+        text-decoration: none;
+        border-radius: 14px;
+        display: block
+    }
+
+    .button:hover {
+        background-color: #07D;
+        display: block
+    }
+
+    .button:active {
+        background-color: #44607a;
+        display: block;
+        transform: scale(1.1);
+        -webkit-transform: scale(1.1);
+        transition: 0.1s
+    }
+
+    #opener {
+        top: 88%;
+        min-width: 200px;
+        max-width: 257px;
+        display: flex;
+        width: 100%;
+        position: fixed;
+        justify-content: space-around
+    }
+
+    #opener,
+    #opener span {
+        background: transparent;
+    }
+
+    .sidenav {
+        height: 100%;
+        width: 0;
+        position: fixed;
+        z-index: 1;
+        top: 0;
+        left: 0;
+        background-color: #111111d9;
+        overflow-x: hidden;
+        transition: 0.5s;
+        display: flex;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .sidenav a {
+        padding: 8px 8px 8px 8px;
+        text-decoration: none;
+        font-size: 25px;
+        display: block;
+        transition: 0.3s;
+        color: white;
+        background: transparent
+    }
+
+    .sidenav a:hover {
+        color: #f1f1f1
+    }
+
+    .sidenav .closebtn {
+        position: sticky;
+        top: 90%;
+        right: 0px;
+        font-size: 36px;
+        margin-left: 69%
+    }
+
+    @media screen and (max-height: 450px) {
+        .sidenav {
+            padding-top: 15px;
+        }
+
+        .sidenav a {
+            font-size: 18px;
+        }
+    }
+
+    @media screen and (max-width: 450px) {
+        #sensorList {
+            grid-template-columns: auto auto;
+            grid-column-gap: 1vh;
+            grid-row-gap: 1vh
+        }
+
+        .sensors {
+            padding-bottom: 2%
+        }
+    }
+
+    @media (prefers-color-scheme: dark) {
+        * {
+            background-color: #222
+        }
+
+        .sensorset,
+        .sensors,
+        .values,
+        .values div {
+            background-color: #444;
+            color: #b3b3b3;
+        }
+
+        element.style {}
+
+        .sidenav a {
+            color: white
+        }
+
+        .button:hover {
+            background-color: #44607a
+        }
+    }
+</STYLE>
+
+
+<script>
+    function openNav() {
+        document.getElementById("mySidenav").style.width = "250px";
+    }
+
+    function closeNav() {
+        document.getElementById("mySidenav").style.width = "0";
+    }
+</script>
+
+<!--Run the function when the site is loaded-->
+
+<body onload="fetchJson()">
+
+    <script>
+        //Blacklist Devices e.g. ["Display", "Sensor"]
+        const blackList = [];
+        async function fetchJson() {
+            response = await fetch("json");
+            myJson = await response.json();
+            let html = '';
+            unit = myJson.WiFi.Hostname;
+            document.getElementById("unitId").innerHTML = unit;
+            myJson.Sensors.forEach(sensor => {
+                // Has the entry TaskValues
+                // uand is is not in Blacklist?  
+                if (sensor.TaskValues && !blackList.includes(sensor.TaskName)) {
+                    firstItem = true;
+                    sensor.TaskValues.forEach(item => {
+                        // is it the first value of a sensor?
+                        if (firstItem) {
+                            firstItem = false;
+                            // add container with name to HTML h:
+                            html += '<div  class="sensorset">' + '<div  class="sensors" style="font-weight:bold;font-size: 14pt;">' + sensor.TaskName + '</div>';
+                        } else {
+                            // add empty container to HTML:
+                            html += '<div></div>';
+                        }
+                        // add container with name and value to HTML:
+                        html += '<div class="values">' + '<div style="text-align: left;">' + item.Name + '</div>' + '<div style="text-align: right;">' + item.Value + '</div>' + '</div>';
+                        console.log(sensor.TaskName + ':' + item.Name + '=' + item.Value);
+                    });
+                    html += '</div>';
+                    console.log(html);
+                    document.getElementById('sensorList').innerHTML = html;
+                } else if (!blackList.includes(sensor.TaskName)) { html += '<div  class="sensorset">' + '<div class="sensors" style="font-weight:bold;font-size: 14pt;">' + sensor.TaskName + '</div>' + '<div></div>' + '<div></div>' + '</div>'; }
+            });
+            setTimeout(fetchJson, 5000);  //how often fetch the data in ms 
+        }
+    </script>
+
+
+    <script>
+        //function to get all the node is only called when clicking the menu button
+        //is a node missing open and close the menu sveral times or put it in a loop
+        async function getNodes() {
+            response = await fetch("json");
+            myJson = await response.json();
+            let html2 = '';
+            myJson.nodes.forEach(node => {
+                html2 += `<a id="${node.name}" onclick="window.location.href = 'http://${node.ip}'">${node.name}</a>`;
+            })
+            document.getElementById('menueList').innerHTML = html2;
+        }
+    </script>
+
+    <div id="mySidenav" class="sidenav">
+        <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+        <a id="menueList">&nbsp;</a>
+    </div>
+
+    <div id="container">
+        <div id="unitId">&nbsp;</div>
+        <div id="sensorList">&nbsp;</div>
+        <div id="opener">
+            <span style="font-size:30px;cursor:pointer" onclick="openNav(); getNodes()">&#9776;</span>
+            <span style="font-size:30px;cursor:pointer" onclick="window.location.href = '/tools';">&#8962;</span>
+        </div>
+
+
+    </div>

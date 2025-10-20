@@ -1,0 +1,12 @@
+GET /tools?cmd=eyzyaz%2305%2F12%2F2024%2319%3A45%23EMRE   ALKIN%230258%23109%2326.0%234.1%232.6%230%230.0%230.0%230%230.0%234444%234444%234444%235667%235466%232445%233536%233535 HTTP/1.1
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
+Accept-Encoding: gzip, deflate
+Accept-Language: tr,tr-TR;q=0.9,en-US;q=0.8,en;q=0.7
+Cache-Control: max-age=0
+Connection: keep-alive
+DNT: 1
+Host: 192.168.0.254
+Referer: http://192.168.0.254/tools?cmd=eyzyaz%2305%2F12%2F2024%2319%3A45%23EMRE    ALKIN%230258%23109%2326.0%234.1%232.6%230%230.0%230.0%230%230.0%234444%234444%234444%235667
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36
+

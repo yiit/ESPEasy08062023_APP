@@ -1,0 +1,15 @@
+SIZE 60 mm, 30 mm
+GAP 0 mm, 0 mm
+SET RIBBON OFF
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 100 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE UTF-8
+TEXT 20,0,"0",0,12,12,"-----------------------------------------------------"
+TEXT 100,30,"0",0,12,12,"GENEL TOPLAM   ADET : %sno%"
+TEXT 160,100,"0",0,20,20,"%topnet% kg" 
+PRINT 1,1
