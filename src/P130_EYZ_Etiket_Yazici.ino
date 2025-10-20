@@ -48,6 +48,36 @@ Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, 
 #include "ESPEasy_common.h"
 #include "ESPEasy-Globals.h"
 
+// Modbus RTU Master için
+#include <ModbusMaster.h>
+
+// Modbus Slave için basit implementasyon
+struct ModbusSlave {
+  uint16_t registers[10]; // 40001-40010 registerları
+  uint8_t slaveId;
+  bool enabled;
+  
+  ModbusSlave() : slaveId(1), enabled(false) {
+    memset(registers, 0, sizeof(registers));
+  }
+  
+  uint16_t calculateCRC(uint8_t* data, uint8_t length);
+  void processRequest();
+  void sendResponse(uint8_t* response, uint8_t len);
+};
+
+// Modbus RTU değişkenleri
+ModbusMaster modbus;
+ModbusSlave modbusSlave;
+unsigned long lastModbusRead = 0;
+// Veri yenileme süresi (ms). Kullanıcının istediği üzere 200 ms
+const unsigned long MODBUS_READ_INTERVAL = 200; // 200 ms
+bool modbusEnabled = false;
+bool isModbusMaster = true; // true=Master, false=Slave
+uint16_t modbusNetAddr = 40001; // Net bilgisi adresi
+uint16_t modbusTriggerAddr = 40003; // Tetik biti adresi
+bool processComplete = false;
+
 //#include "ESP32Ping.h"
 //#######################################################################################################
 //##################################### Plugin 130: EYZ #################################################
@@ -89,17 +119,8 @@ Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, 
 
 #define EYZ_Hedef PCONFIG_FLOAT(0)
 
-//WiFiServer *EyzServer;
-//WiFiClient EyzClients[MAX_SRV_CLIENTS];
-
 #include "OneButton.h"
 
-//OneButton eyz_button2(12, false, false); //denedik
-#ifdef ESP8266
-//OneButton eyz_button2(14, false, false);  //RONGTA
-OneButton eyz_button2(12, false, false);  //RONGTA
-//OneButton eyz_button2(12, true, true); //HPRT
-#endif
 #ifdef ESP32
 #if FEATURE_ETHERNET
 OneButton eyz_button1(14, false, false);  //RONGTA
@@ -122,9 +143,6 @@ OneButton eyz_button2(22, false, false);  //RONGTA
 //OneButton eyz_button2(2, true, true);  //SD KARD AKTİF
 
 bool internet_p130 = false;
-
-/*uint8_t broadcastAddress_rcv[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-esp_now_peer_info_t peerInfo_rcv;*/
 
 void eyz_click1() {
   ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyzart");
@@ -157,34 +175,106 @@ void eyz_longPressStart2() {
   //ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyzart");
   ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyzsensor");
 }
-/*
-void eyz_longPressStop2() {
+
+// Modbus RTU fonksiyonları
+bool readModbusHoldingRegister(uint16_t address, uint16_t &value) {
+  if (!modbusEnabled) return false;
+  
+  uint8_t result = modbus.readHoldingRegisters(address - 40001, 1); // Modbus adresi 0-based
+  if (result == modbus.ku8MBSuccess) {
+    value = modbus.getResponseBuffer(0);
+    return true;
+  }
+  return false;
+}
+
+bool writeModbusHoldingRegister(uint16_t address, uint16_t value) {
+  if (!modbusEnabled) return false;
+  
+  uint8_t result = modbus.writeSingleRegister(address - 40001, value); // Modbus adresi 0-based
+  return (result == modbus.ku8MBSuccess);
+}
+
+void processModbusData() {
+  if (!modbusEnabled) {
+    return;
+  }
+  
+  if (isModbusMaster) {
+    // MASTER MODU: Veri okuma ve yazma
+    if (millis() - lastModbusRead < MODBUS_READ_INTERVAL) {
+      return;
+    }
+    
+    lastModbusRead = millis();
+    hataTimer_l = millis();
+    
+    // Global değişkenlerden adres bilgilerini al
+    uint16_t netAddr = modbusNetAddr; // Net bilgisi adresi
+    uint16_t triggerAddr = modbusTriggerAddr; // Tetik biti adresi
+    
+    // Net bilgisini (kilo) oku
+    uint16_t kiloRaw;
+    if (readModbusHoldingRegister(netAddr, kiloRaw)) {
+      // Kilo verisini global değişkene yaz
+      webapinettartim = kiloRaw;
+        
+      XML_NET_S = String(webapinettartim, 0);
+      dtostrf(webapinettartim, 8, 0, XML_NET_C);
+      
+      addLog(LOG_LEVEL_DEBUG, String(F("EYZ Modbus Master: ")) + String(netAddr) + 
+             String(F(" adresinden Kilo = ")) + String(kiloRaw, int(ExtraTaskSettings.TaskDeviceValueDecimals[0])) + F(" kg"));
+    }
+    
+    // Tetik bitini oku
+    uint16_t triggerBit;
+    if (readModbusHoldingRegister(triggerAddr, triggerBit)) {
+      if (triggerBit == 1 && !processComplete) {
+        // Eyztek komutunu çalıştır
+        ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
+        addLog(LOG_LEVEL_INFO, String(F("EYZ Modbus Master: ")) + String(triggerAddr) + 
+               String(F(" adresinden Eyztek komutu tetiklendi")));
+        processComplete = true;
+        
+        // İşlem tamamlandığında tetik adresini 0 yap
+        if (writeModbusHoldingRegister(triggerAddr, 0)) {
+          addLog(LOG_LEVEL_DEBUG, String(F("EYZ Modbus Master: ")) + String(triggerAddr) + 
+                 String(F(" adresi sıfırlandı")));
+        }
+      } else if (triggerBit == 0) {
+        processComplete = false; // Yeni tetikleme için hazır
+      }
+    }
+  } else {
+    // SLAVE MODU: İstekleri işle ve verileri sağla
+    modbusSlave.processRequest();
+    hataTimer_l = millis();
+    
+    // Global değişkenlerden dinamik adresler
+    uint16_t triggerAddr = modbusTriggerAddr; // Tetik biti adresi
+    
+    // Register index hesaplama (40001 -> 0, 40002 -> 1, vs.)
+    uint16_t triggerRegIndex = triggerAddr - 40001;
+    
+    // Eyztek işlemini tetiklemek için dinamik tetik adresini kontrol et
+    if (triggerRegIndex < 10) {
+      if (modbusSlave.registers[triggerRegIndex] == 1 && !processComplete) {
+        ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
+        addLog(LOG_LEVEL_INFO, String(F("EYZ Modbus Slave: ")) + String(triggerAddr) + 
+               String(F(" adresinden Eyztek komutu tetiklendi")));
+        processComplete = true;
+        modbusSlave.registers[triggerRegIndex] = 0; // Tetik bitini sıfırla
+      } else if (modbusSlave.registers[triggerRegIndex] == 0) {
+        processComplete = false;
+      }
+    }
+  }
+}
+
+/*void eyz_longPressStop2() {
   ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
 }*/  
-/*void onReceiveData(const uint8_t *mac, const uint8_t *data, int len) {
-  //Serial.print("** Data Received **\n\n");
-  //Serial.printf("Received from MAC: %02x:%02x:%02x:%02x:%02x:%02x\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  //Serial.printf("Length: %d byte(s)\n", len);
-  //Serial.printf("Data: %d\r\n", data);
-  //memcpy(&myData, data, sizeof(myData));
-  //Serial.write((char*)data, len);
-  tartimdata_s = (char*)data;
-  //Serial.print(tartimdata_s);
-  PluginCall(PLUGIN_WRITE, 0, tartimdata_s);
-}
-void initESP_NOW_SRV() {
-  if (esp_now_init() != ESP_OK) {
-    //Serial.printf("Error initializing ESP-NOW\n");
-    return;
-  }
-  memcpy(peerInfo_rcv.peer_addr, broadcastAddress_rcv, sizeof(broadcastAddress_rcv));
-  peerInfo_rcv.channel = 1;  
-  peerInfo_rcv.encrypt = false;
-  if (esp_now_add_peer(&peerInfo_rcv) != ESP_OK){
-    //Serial.printf("Failed to add peer\r\n");
-    return;
-  }
-}*/
+
 boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
   boolean success = false;
   switch (function) {
@@ -247,6 +337,43 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
         int optionValues1[7] = {0, 1, 2, 3, 4, 5, 6};
         addFormSelector(F("Yazdırma Modu"), F("plugin_130_mod"), 7, options1, optionValues1, choice1);
         addFormCheckBox(F("Bartender prn"), F("plugin_130_bartender"), EYZ_Bartender);
+        
+        // Modbus RTU Ayarları
+        addFormSubHeader(F("Modbus RTU Ayarları"));
+        addFormCheckBox(F("Modbus RTU Etkin"), F("plugin_130_modbus_enable"), PCONFIG(5));
+        
+        // Sadece Modbus etkinse diğer ayarları göster
+        if (PCONFIG(5)) {
+          // Modbus Master/Slave seçimi
+          byte choice_modbus = PCONFIG(7); // PCONFIG(7) = 0:Master, 1:Slave
+          String modbus_options[2];
+          modbus_options[0] = F("Master (Veri okuyucu)");
+          modbus_options[1] = F("Slave (Veri sağlayıcı)");
+          int modbus_optionValues[2] = {0, 1};
+          addFormSelector(F("Modbus Modu"), F("plugin_130_modbus_mode"), 2, modbus_options, modbus_optionValues, choice_modbus);
+          
+          addFormNumericBox(F("Slave ID"), F("plugin_130_slave_id"), PCONFIG(6), 1, 247);
+          addFormNumericBox(F("Baud Rate"), F("plugin_130_baud"), PCONFIG_LONG(0), 9600, 115200);
+          
+          // Modbus Register Adresleri
+          addFormSubHeader(F("Modbus Register Adresleri"));
+          addFormNumericBox(F("Net Bilgisi Adresi"), F("plugin_130_net_addr"), PCONFIG_LONG(1) ? PCONFIG_LONG(1) : 40001, 40001, 49999);
+          addFormNote(F("Net bilgisi (kilo verisi) okunacak/yazılacak Modbus register adresi"));
+          
+          addFormNumericBox(F("Yazdır Tetik Adresi"), F("plugin_130_trigger_addr"), PCONFIG_LONG(2) ? PCONFIG_LONG(2) : 40003, 40001, 49999);
+          addFormNote(F("Yazdırma işlemini tetikleyen bit'in bulunduğu Modbus register adresi"));
+          
+          if (PCONFIG(7) == 0) { // Master modu
+            addFormNote(F("Master Modu: Belirtilen adreslerden veri okur ve tetik biti kontrol eder"));
+          } else { // Slave modu  
+            addFormNote(F("Slave Modu: Belirtilen adreslerde diğer cihazların okuyabileceği veriler sağlar"));
+          }
+        } else {
+          addFormNote(F("Modbus RTU ayarları için önce 'Modbus RTU Etkin' seçeneğini işaretleyin"));
+        }
+
+        addFormSubHeader(F("Etiket Seçimi"));
+        
 #ifdef ESP8266
         fs::Dir filedata = ESPEASY_FS.openDir("rules");
         int fileno = 0;
@@ -311,6 +438,24 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
         EYZ_Gecikme = getFormItemInt(F("plugin_130_gecikme"));
         EYZ_Bartender = isFormItemChecked(F("plugin_130_bartender"));
         EYZ_ASCII = isFormItemChecked(F("plugin_130_ascii"));
+        
+        // Modbus RTU ayarlarını kaydet
+        PCONFIG(5) = isFormItemChecked(F("plugin_130_modbus_enable"));
+        PCONFIG(6) = getFormItemInt(F("plugin_130_slave_id"));
+        PCONFIG(7) = getFormItemInt(F("plugin_130_modbus_mode")); // 0:Master, 1:Slave
+        
+        // Adresleri ayrı PCONFIG_LONG'lara kaydet
+        uint16_t netAddr = getFormItemInt(F("plugin_130_net_addr"));
+        uint16_t triggerAddr = getFormItemInt(F("plugin_130_trigger_addr"));
+        PCONFIG_LONG(1) = netAddr;      // Net adresi
+        PCONFIG_LONG(2) = triggerAddr;  // Tetik adresi
+        
+        PCONFIG_LONG(0) = getFormItemInt(F("plugin_130_baud"));
+        
+        // Debug: Kaydedilen adresleri logla
+        addLog(LOG_LEVEL_INFO, String(F("EYZ: Net adresi kaydedildi: ")) + String(netAddr));
+        addLog(LOG_LEVEL_INFO, String(F("EYZ: Tetik adresi kaydedildi: ")) + String(triggerAddr));
+        
         ExtraTaskSettings.TaskDeviceIsaretByte = getFormItemInt(F("isaret_byte"));
         ExtraTaskSettings.TaskDeviceSonByte = getFormItemInt(F("son_byte"));
         PCONFIG_FLOAT(0) = getFormItemFloat(F("plugin_130_hedef"));
@@ -335,18 +480,6 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
 
     case PLUGIN_INIT:
       {
-        /*if (Settings.espnow_mod == 2)
-          initESP_NOW_SRV();*/
-        //eyz_button1 = new OneButton();
-        //eyz_button2 = new OneButton();
-        //switch (EYZ_Model) {
-        // case 1: eyz_button1 = new OneButton(12, true, true);
-        //         eyz_button2 = new OneButton(14, true, true);
-        //         break;
-        // case 2: eyz_button1 = new OneButton(12, false, false);
-        //         eyz_button2 = new OneButton(14, false, false);
-        //         break;
-        //}
         eyz_button1.attachClick(eyz_click1);
         eyz_button1.attachDoubleClick(eyz_click1);
         eyz_button1.attachLongPressStart(eyz_click1);
@@ -356,8 +489,53 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
         //eyz_button2.attachLongPressStop(eyz_longPressStop2);
         //eyz_button1.tick();
         eyz_button2.tick();
-        //EyzServer = new WiFiServer(9100);
-        //EyzServer->begin();
+        
+        // Modbus RTU başlatma (Master/Slave)
+        if (PCONFIG(5)) { // Modbus etkinse
+          modbusEnabled = true;
+          isModbusMaster = (PCONFIG(7) == 0); // 0=Master, 1=Slave
+          
+          // Global değişkenlere adresleri kaydet - Ayrı PCONFIG_LONG'lardan oku
+          modbusNetAddr = PCONFIG_LONG(1) ? PCONFIG_LONG(1) : 40001;      // Net adresi
+          modbusTriggerAddr = PCONFIG_LONG(2) ? PCONFIG_LONG(2) : 40003;  // Tetik adresi
+
+          // Debug: Yüklenen adresleri logla
+          addLog(LOG_LEVEL_INFO, String(F("EYZ Init: Net adresi yüklendi: ")) + String(modbusNetAddr));
+          addLog(LOG_LEVEL_INFO, String(F("EYZ Init: Tetik adresi yüklendi: ")) + String(modbusTriggerAddr));
+          
+          #ifdef ESP32
+          #if FEATURE_ETHERNET
+            Serial1.begin(PCONFIG_LONG(0) ? PCONFIG_LONG(0) : 9600, SERIAL_8N1, 14, 12); // RX=14, TX=12
+            if (isModbusMaster) {
+              modbus.begin(PCONFIG(6) ? PCONFIG(6) : 1, Serial1); // Slave ID
+              addLog(LOG_LEVEL_INFO, F("EYZ: Modbus RTU Master başlatıldı"));
+              hataTimer_l = millis(); // Serial error hatasını önle
+            } else {
+              modbusSlave.slaveId = PCONFIG(6) ? PCONFIG(6) : 1;
+              modbusSlave.enabled = true;
+              addLog(LOG_LEVEL_INFO, F("EYZ: Modbus RTU Slave başlatıldı"));
+              hataTimer_l = millis(); // Serial error hatasını önle
+            }
+          #else
+            // Pin seçenekleri:
+            // 16,17 = Yazıcı için kullanılıyor (çakışma var)
+            // 13,27 = Modbus için seçildi (çakışma yok)  
+            // 14,12 = Eski pinler (timeout sorunu vardı)
+            Serial2.begin(PCONFIG_LONG(0) ? PCONFIG_LONG(0) : 9600, SERIAL_8N1, 13, 27); // RX=13, TX=27 (Modbus için)
+            if (isModbusMaster) {
+              modbus.begin(PCONFIG(6) ? PCONFIG(6) : 1, Serial2); // Slave ID
+              addLog(LOG_LEVEL_INFO, F("EYZ: Modbus RTU Master başlatıldı"));
+            } else {
+              modbusSlave.slaveId = PCONFIG(6) ? PCONFIG(6) : 1;
+              modbusSlave.enabled = true;
+              addLog(LOG_LEVEL_INFO, F("EYZ: Modbus RTU Slave başlatıldı"));
+            }
+          #endif
+          #endif
+        } else {
+          modbusEnabled = false;
+        }
+        
         if (!PCONFIG(4)) {
           switch (EYZ_Indikator) {
             case 26:
@@ -376,11 +554,6 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
               break;
           }
         }
-/*#ifdef ESP8266
-        display.begin(i2c_Address, true);
-        display.display();
-        display.clearDisplay();
-#endif*/
         Settings.WebAPP = 130;
         success = true;
         break;
@@ -388,25 +561,11 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
 
     case PLUGIN_FIFTY_PER_SECOND:
       {
-        /*if (Settings.espnow_mod == 2)
-          esp_now_register_recv_cb(onReceiveData);*/
-        //esp_err_t result = esp_now_send(broadcastAddress_rcv, (uint8_t *)&m, sizeof(int));
-        //if (result == ESP_OK)
-          //Serial.println("Data sent successfully\r\n");
-        //else
-          //Serial.println("Error sending the data\r\n");        
-        //vTaskDelay(1000 / portTICK_PERIOD_MS);*/
-/*#ifdef ESP8266
-        display.clearDisplay();
-        display.setTextSize(2);  // Normal 1:1 pixel scale
-        display.setTextColor(SH110X_WHITE);
-        display.setCursor(0, 0);  // Start at top-left corner
-        display.println(F("  ADET :"));
-        display.setTextSize(4);
-        display.setCursor(0, 30);
-        display.println(String(XML_SAYAC_C));
-        display.display();
-#endif*/
+        // Modbus verilerini işle
+        if (modbusEnabled) {
+          processModbusData();
+        }
+        
         switch (EYZ_Mod) {
           case 0:
             eyz_button1.tick();
@@ -440,13 +599,6 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
 
     case PLUGIN_ONCE_A_SECOND:
       {
-        //IPAddress host(172,217,20,67);
-        /*IPAddress host(Settings.Cli_PrinterIP);
-        if (Ping.ping(host,3))
-          internet_p130 = true;
-        else
-          internet_p130 = false;
-        Serial.println(internet_p130);*/
         serial_error(event, EYZ_Mod, "eyztek");
         success = true;
         break;
@@ -567,128 +719,134 @@ boolean Plugin_130(byte function, struct EventStruct *event, String &string) {
       }
 #endif
 #endif
-#ifdef ESP8266
-    case PLUGIN_SERIAL_IN:
-      {
-        while (Serial.available()) {
-          char inChar = Serial.read();
-          if (inChar == 255) {
-            Serial.flush();
-            break;
-          }
-          if (isprint(inChar))
-            tartimString_s += (String)inChar;
-          if (inChar == ExtraTaskSettings.TaskDeviceSonByte) {
-            hataTimer_l = millis();
-            if (Settings.Tersle)
-              tersle(event, tartimString_s);
-            isaret(event, EYZ_Indikator, tartimString_s);
-            if ((EYZ_Mod == 3) || (EYZ_Mod == 4))
-              formul_kontrol(event, tartimString_s, EYZ_Mod, true);
-            else {
-              if (EYZ_Mod == 5) {
-                if ((String(EYZ_art_komut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(EYZ_art_komut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(EYZ_art_komut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyzart");
-                if ((String(EYZ_top_komut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(EYZ_top_komut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(EYZ_top_komut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-                if ((String(EYZ_tek_komut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(EYZ_tek_komut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(EYZ_tek_komut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-              }
-              formul_seri(event, tartimString_s, EYZ_Indikator);
-              if ((EYZ_Mod == 1) && ((webapinettartim > 0.001) || (Settings.UseNegatifYaz)))
-                ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-            }
-            tartimString_s = "";
-          }
-        }
-        success = true;
-        break;
-      }
-#endif
-
-/*#ifdef ESP32
-#ifdef HAS_BLUETOOTH
-    case PLUGIN_SERIALBT_IN:
-      {
-        while (SerialBT.available()) {
-          char inChar = SerialBT.read();
-          if (inChar == 255) {
-            SerialBT.flush();
-            break;
-          }
-          if (isprint(inChar))
-            tartimString_s += (String)inChar;
-          Serial1.print(tartimString_s);
-          if ((inChar == ExtraTaskSettings.TaskDeviceSonByte) && (tartimString_s.length() > 1)) {
-            hataTimer_l = millis();
-            if (Settings.Tersle)
-              tersle(event, tartimString_s);
-            isaret(event, EYZ_Indikator, tartimString_s);
-            if ((EYZ_Mod == 3) || (EYZ_Mod == 4))
-              formul_kontrol(event, tartimString_s, EYZ_Mod, true);
-            else {
-              if (EYZ_Mod == 5) {
-                if ((String(EYZ_art_komut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(EYZ_art_komut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(EYZ_art_komut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyzart");
-                if ((String(EYZ_top_komut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(EYZ_top_komut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(EYZ_top_komut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-                if ((String(EYZ_tek_komut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(EYZ_tek_komut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(EYZ_tek_komut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-              }
-              formul_seri(event, tartimString_s, EYZ_Indikator);
-              if ((EYZ_Mod == 1) && ((webapinettartim > 0.001) || (Settings.UseNegatifYaz)))
-                ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-            }
-            tartimString_s = "";
-          }
-        }
-        success = true;
-        break;
-      }
-      
-      
-      {
-        while (SerialBT.available()) {
-          char inChar = Serial.read();
-          if (inChar == 255) {
-            Serial.flush();
-            break;
-          }
-          if (isprint(inChar))
-            tartimString_s += (String)inChar;
-          if (inChar == ExtraTaskSettings.TaskDeviceSonByte) {
-            hataTimer_l = millis();
-            if (Settings.Tersle)
-              tersle(event, tartimString_s);
-            isaret(event, EYZ_Indikator, tartimString_s);
-            if ((EYZ_Mod == 3) || (EYZ_Mod == 4))
-              formul_kontrol(event, tartimString_s, EYZ_Mod, true);
-            else {
-              if (EYZ_Mod == 5) {
-                if ((String(eyzartKomut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(eyzartKomut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(eyzartKomut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyzart");
-                if ((String(eyztopKomut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(eyztopKomut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(eyztopKomut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-                if ((String(eyztekKomut).length() > 0) && (tartimString_s.substring(ExtraTaskSettings.TaskDeviceValueBas[0], (String(eyztekKomut).length() + ExtraTaskSettings.TaskDeviceValueBas[0])) == String(eyztekKomut)))
-                  ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-              }
-              formul_seri(event, tartimString_s, EYZ_Indikator);
-              if ((EYZ_Mod == 1) && (webapinettartim > 0.001) || (Settings.UseNegatifYaz))
-                ExecuteCommand_all(EventValueSource::Enum::VALUE_SOURCE_WEB_FRONTEND, "eyztek");
-              Serial.flush();
-            }
-            tartimString_s = "";
-          }
-        }
-        success = true;
-        break;
-      }
-#endif
-#endif*/
   }
   return success;
 }
 #endif
+
+// Modbus Slave fonksiyonları
+void ModbusSlave::processRequest() {
+  if (!enabled) return;
+  
+  #ifdef ESP32
+  #if FEATURE_ETHERNET
+    if (!Serial1.available()) return;
+  #else
+    if (!Serial2.available()) return;
+  #endif
+  #endif
+  
+  uint8_t buffer[256];
+  uint8_t len = 0;
+  
+  // Serial veri okuma
+  #ifdef ESP32
+  #if FEATURE_ETHERNET
+    while (Serial1.available() && len < 256) {
+      buffer[len++] = Serial1.read();
+    }
+  #else
+    while (Serial2.available() && len < 256) {
+      buffer[len++] = Serial2.read();
+    }
+  #endif
+  #endif
+  
+  if (len < 8) return; // Minimum Modbus frame
+  
+  // Slave ID kontrolü
+  if (buffer[0] != slaveId) return;
+  
+  uint8_t function = buffer[1];
+  uint16_t startAddr = (buffer[2] << 8) | buffer[3];
+  uint16_t quantity = (buffer[4] << 8) | buffer[5];
+  
+  // Function 03: Read Holding Registers
+  if (function == 0x03) {
+    addLog(LOG_LEVEL_INFO, String(F("Modbus Slave: Okuma isteği - Başlangıç: ")) + String(startAddr) + 
+           String(F(", Adet: ")) + String(quantity));
+           
+    uint8_t response[256];
+    response[0] = slaveId;
+    response[1] = 0x03;
+    response[2] = quantity * 2; // Byte count
+    
+    int idx = 3;
+    for (int i = 0; i < quantity; i++) {
+      uint16_t regAddr = startAddr + i; // startAddr zaten 0-based (40001 -> 0)
+      if (regAddr < 10) {
+        response[idx++] = (registers[regAddr] >> 8) & 0xFF;
+        response[idx++] = registers[regAddr] & 0xFF;
+        addLog(LOG_LEVEL_DEBUG, String(F("Modbus Slave: Register[")) + String(regAddr) + 
+               String(F("] = ")) + String(registers[regAddr]));
+      } else {
+        response[idx++] = 0;
+        response[idx++] = 0;
+      }
+    }
+    
+    // CRC hesaplama
+    uint16_t crc = calculateCRC(response, idx);
+    response[idx++] = crc & 0xFF;        // CRC Low
+    response[idx++] = (crc >> 8) & 0xFF; // CRC High
+    
+    sendResponse(response, idx);
+  }
+  
+  // Function 06: Write Single Register
+  else if (function == 0x06) {
+    uint16_t regAddr = startAddr; // startAddr already 0-based
+    uint16_t value = (buffer[4] << 8) | buffer[5];
+
+    if (regAddr < 10) {
+      registers[regAddr] = value;
+
+      // Eğer yazılan register net register ise, XML ve web değişkenlerini güncelle
+      if (regAddr == (modbusNetAddr - 40001)) {
+        // Değeri XML_NET_S ile webapinettartim'e yaz
+        webapinettartim = (float)value;
+        
+        XML_NET_S = String(webapinettartim, 0);
+        dtostrf(webapinettartim, 8, 0, XML_NET_C);
+        addLog(LOG_LEVEL_INFO, String(F("Modbus Slave: Net register yazildi, XML_NET_S guncellendi: ")) + XML_NET_S);
+      }
+
+      // Echo response with proper CRC
+      uint16_t crc = calculateCRC(buffer, 6);
+      buffer[6] = crc & 0xFF;
+      buffer[7] = (crc >> 8) & 0xFF;
+      sendResponse(buffer, 8);
+    }
+  }
+}
+
+void ModbusSlave::sendResponse(uint8_t* response, uint8_t len) {
+  #ifdef ESP32
+  #if FEATURE_ETHERNET
+    Serial1.write(response, len);
+  #else
+    Serial2.write(response, len);
+  #endif
+  #endif
+}
+
+// Modbus CRC16 hesaplama fonksiyonu
+uint16_t ModbusSlave::calculateCRC(uint8_t* data, uint8_t length) {
+  uint16_t crc = 0xFFFF;
+  
+  for (uint8_t i = 0; i < length; i++) {
+    crc ^= data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if (crc & 0x0001) {
+        crc >>= 1;
+        crc ^= 0xA001;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return crc;
+}
 
 //Dikomsan
 //ETXSTXadd:       01   CRLF

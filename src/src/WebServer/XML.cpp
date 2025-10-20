@@ -180,7 +180,7 @@ void handle_xml() {
   XML += String(XML_OUTPUT_PIN_C);
   XML += "</output>";
 
-  XML += "<msg1>";
+  /*XML += "<msg1>";
   XML += XML_MESAJ1_S;
   XML += "</msg1>";
 
@@ -214,7 +214,7 @@ void handle_xml() {
 
   XML += "<msg9>";
   XML += XML_MESAJ9_S;
-  XML += "</msg9>";
+  XML += "</msg9>";*/
 
 /*#ifdef CAS_VERSION
   XML += "<V0>";
