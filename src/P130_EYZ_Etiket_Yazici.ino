@@ -128,11 +128,11 @@ OneButton eyz_button2(15, false, false);  //RONGTA
 //OneButton eyz_button2(22, true, true);  //HPRT
 #endif
 #ifdef HAS_WIFI
-OneButton eyz_button1(21, false, false);  //RONGTA
-OneButton eyz_button2(22, false, false);  //RONGTA
+//OneButton eyz_button1(21, false, false);  //RONGTA
+//OneButton eyz_button2(22, false, false);  //RONGTA
 
-//OneButton eyz_button1(21, true, true);  //SK330
-//OneButton eyz_button2(22, true, true);  //SK330
+OneButton eyz_button1(21, true, true);  //SK330
+OneButton eyz_button2(22, true, true);  //SK330
 #endif
 #endif
 //OneButton eyz_button1(12, false, false);  //SAYAC
